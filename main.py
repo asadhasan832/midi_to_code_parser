@@ -1,4 +1,6 @@
 import mido
+import numpy as np
+from scipy.fft import rfft, rfftfreq
 
 def parse_midi(file_path):
     # Load MIDI file
@@ -15,27 +17,40 @@ def parse_midi(file_path):
                     # Note off event
                     notes.append((msg.note, 0))
 
+    # Separate note durations
+    durations = [duration for _, duration in notes]
+
+    # Perform Fourier Transform
+    signal = np.array(durations)
+    fft = rfft(signal)
+    frequencies = rfftfreq(len(signal))
+
+    # Find dominant frequencies
+    dominant_indices = np.argsort(np.abs(fft))[-5:]  # Adjust the number of dominant frequencies to consider
+    dominant_frequencies = frequencies[dominant_indices]
+
+    # Assign note durations to patterns
+    pattern_map = {}
+    for duration in durations:
+        closest_frequency = min(dominant_frequencies, key=lambda f: abs(f - duration))
+        pattern_index = np.where(dominant_frequencies == closest_frequency)[0][0]
+        pattern_map.setdefault(pattern_index, []).append(duration)
+
     # Generate code
     code = 'const scribble = require("scribbletune");\n\n'
     code += 'const clip = scribble.clip({\n'
-    code += '    notes: [\n'
-    for note, duration in notes:
-        if duration > 0:
-            note_name = get_note_name(note)
-            code += f'        "{note_name}",\n'
+    code += '    pattern: [\n'
+    for pattern_index, pattern_durations in pattern_map.items():
+        pattern_durations_str = ', '.join([str(duration) for duration in pattern_durations])
+        code += f'        "{pattern_durations_str}",\n'
     code += '    ],\n'
-    code += '    pattern: "x",\n'
+    code += '    notes: ["C4"],\n'  # Adjust the notes as per your requirement
+    code += '    patternLength: 8,\n'  # Adjust the pattern length as per your requirement
     code += '    accentMap: "x---",\n'
     code += '});\n\n'
     code += 'scribble.midi(clip, "output.mid");\n'
 
     return code
-
-def get_note_name(midi_note):
-    note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    octave = (midi_note // 12) - 1
-    note_index = midi_note % 12
-    return note_names[note_index] + str(octave)
 
 # Example usage
 midi_file = 'example.mid'
